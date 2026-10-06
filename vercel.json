@@ -1,0 +1,13 @@
+{
+  "cleanUrls": true,
+  "functions": { "api/null.js": { "maxDuration": 60 } },
+  "rewrites": [
+    { "source": "/m/:mint", "destination": "/api/null?__p=meta&mint=:mint" },
+    { "source": "/i/:file", "destination": "/api/null?__p=img&mint=:file" },
+    { "source": "/api/:path*", "destination": "/api/null?__p=:path*" }
+  ],
+  "headers": [
+    { "source": "/fonts/(.*)", "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }] },
+    { "source": "/js/web3.min.js", "headers": [{ "key": "Cache-Control", "value": "public, max-age=604800" }] }
+  ]
+}

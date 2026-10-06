@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>null</title>
+<meta name="description" content="Most coins return null. A launchpad on PumpSwap where a coin lives only while it trades.">
+<meta name="theme-color" content="#050505">
+<meta property="og:type" content="website">
+<meta property="og:title" content="$NULL">
+<meta property="og:description" content="Most coins return null. null is not zero.">
+<meta property="og:image" content="/img/og.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="$NULL">
+<meta name="twitter:description" content="Most coins return null. null is not zero.">
+<meta name="twitter:image" content="/img/og.jpg">
+<link rel="icon" href="/img/fav.png">
+<link rel="apple-touch-icon" href="/img/apple.png">
+<link rel="preload" href="/fonts/SpaceMono-Regular.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/SpaceMono-Bold.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/css/null.css?v=1">
+</head>
+<body>
+<div class="grain" aria-hidden="true"></div>
+<div class="scan" aria-hidden="true"></div>
+
+<nav id="nav">
+  <div class="links" id="links">
+    <a href="#census">census</a><a href="#births">births</a><a href="#check">check</a><a href="#host">host</a><a href="#launch">launch</a><a href="#void">void</a><a href="#man">man</a>
+  </div>
+  <button class="wallet" id="walletBtn" type="button"><i></i><span id="walletLabel">connect</span></button>
+</nav>
+
+<header class="hero" id="top">
+  <canvas id="horizon" aria-hidden="true"></canvas>
+  <div class="hero-in">
+    <h1 class="word" id="word" data-text="null"><span id="wordTxt">null</span><i class="cur" aria-hidden="true"></i></h1>
+    <p class="tag" id="tag">null is not zero.</p>
+    <form class="psql" id="psql" autocomplete="off">
+      <label for="cmd">null=#</label>
+      <input id="cmd" spellcheck="false" autocapitalize="off" placeholder="paste a coin, or type help" aria-label="query">
+      <span class="ghost" id="ghost" aria-hidden="true"></span>
+    </form>
+    <pre class="out" id="out" aria-live="polite"></pre>
+  </div>
+  <div class="hz-tip" id="hzTip" hidden></div>
+</header>
+
+<main>
+  <section class="cell" id="census" data-cell="census">
+    <div class="q"><span class="pr">null=#</span> <code class="sql"><span class="k">SELECT</span> <span class="k">count</span>(*), <span class="k">avg</span>(state <span class="k">IS NULL</span>) <span class="k">FROM</span> graduations <span class="k">WHERE</span> born &gt; <span class="k">now</span>() - <span class="s">'7 days'</span>;</code></div>
+    <div class="res" id="censusRes"></div>
+  </section>
+
+  <section class="cell" id="births" data-cell="births">
+    <div class="q"><span class="pr">null=#</span> <code class="sql"><span class="k">SELECT</span> * <span class="k">FROM</span> births <span class="k">ORDER BY</span> born <span class="k">DESC</span> <span class="k">LIMIT</span> <span class="n">24</span> <span class="m">\watch 30</span></code></div>
+    <div class="res" id="birthsRes"></div>
+  </section>
+
+  <section class="cell" id="check" data-cell="check">
+    <div class="q"><span class="pr">null=#</span> <code class="sql"><span class="k">SELECT</span> state <span class="k">FROM</span> coins <span class="k">WHERE</span> mint = <span class="s">'</span><span class="slot"><input id="checkIn" class="inl wide" spellcheck="false" autocapitalize="off" placeholder="mint or pool address" aria-label="mint or pool address"></span><span class="s">'</span>;<button class="go slot" id="checkGo" type="button" aria-label="run">run</button></code></div>
+    <div class="res" id="checkRes"></div>
+  </section>
+
+  <section class="cell" id="host" data-cell="host">
+    <div class="q"><span class="pr">null=#</span> <code class="sql"><span class="k">UPDATE</span> pools <span class="k">SET</span> host = <span class="s">'you'</span> <span class="k">WHERE</span> alive <span class="k">RETURNING</span> fees;</code></div>
+    <div class="res" id="hostRes"></div>
+  </section>
+
+  <section class="cell" id="launch" data-cell="launch">
+    <div class="q"><span class="pr">null=#</span> <code class="sql"><span class="k">INSERT INTO</span> coins (name, ticker) <span class="k">VALUES</span> (<span class="s">'</span><span class="slot"><input id="lName" class="inl" maxlength="32" spellcheck="false" placeholder="name" aria-label="coin name"></span><span class="s">'</span>, <span class="s">'</span><span class="slot"><input id="lSym" class="inl short" maxlength="10" spellcheck="false" autocapitalize="characters" placeholder="TICKER" aria-label="ticker"></span><span class="s">'</span>) <span class="k">RETURNING</span> mint;</code></div>
+    <div class="res" id="launchRes"></div>
+  </section>
+
+  <section class="cell" id="void" data-cell="void">
+    <div class="q"><span class="pr">null=#</span> <code class="sql"><span class="k">SELECT</span> * <span class="k">FROM</span> void;</code></div>
+    <div class="res void-res" id="voidRes"><canvas id="vortex" aria-hidden="true"></canvas><div class="void-in" id="voidIn"></div></div>
+  </section>
+
+  <section class="cell" id="man" data-cell="man">
+    <div class="q"><span class="pr">null=#</span> <code class="sql"><span class="m">\! man null</span></code></div>
+    <div class="res" id="manRes"></div>
+  </section>
+</main>
+
+<aside class="drawer" id="drawer" aria-hidden="true">
+  <button class="x" id="dClose" type="button" aria-label="close">esc</button>
+  <div id="dIn"></div>
+</aside>
+<div class="veil" id="veil" hidden></div>
+
+<div class="modal" id="wModal" hidden>
+  <div class="mbox" role="dialog" aria-modal="true" aria-labelledby="wTitle">
+    <div class="mhead"><h3 id="wTitle">connect</h3><button class="x" id="wClose" type="button" aria-label="close">esc</button></div>
+    <div id="wList"></div>
+  </div>
+</div>
+<div class="toast" id="toast" role="status"></div>
+
+<script src="/js/null.js?v=1"></script>
+</body>
+</html>
