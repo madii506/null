@@ -118,7 +118,7 @@
   function hzAdd(list, src) {
     const t = performance.now(); let k = 0;
     for (const c of list || []) {
-      if (!c || !c.mint || !c.bornAt) continue;
+      if (!c || !c.mint || !c.bornAt || !c.lastAt) continue;
       const old = HZ.pts.get(c.mint);
       if (old) { Object.assign(old, c); continue; }
       HZ.pts.set(c.mint, { ...c, seed: hashStr(c.mint), seed2: hashStr(c.mint + 'y'), t0: t + (k++) * 22, src });
@@ -347,7 +347,7 @@ census  births  check  host  launch  void  man null  whoami  clear`); return;
         <div><div class="n"><span id="cRate">${rate == null ? '—' : Math.round(rate * 100) + '%'}</span></div><div class="l">${rate == null ? `of coins 3+ days old returned null <span class="mute">· needs 72h of history, the RPC reached ${j.coveredHours}h</span>` : `of coins 3+ days old returned null <span class="mute">· sample n=${j.oldSampled}</span>`}</div></div>
       </div>
       <div class="bars">${j.cohorts.map(c => {
-        const n = c.sampled, a = n ? Math.round(c.alive / n * SEG) : 0, z = n ? SEG - a : 0;
+        const n = c.sampled, a = n ? Math.round(c.alive / n * SEG) : 0, z = n ? Math.min(SEG - a, Math.round(c.null / n * SEG)) : 0;
         const cells = Array.from({ length: SEG }, (_, i) => `<i class="${i < a ? '' : i < a + z ? 'z' : 'o'}"></i>`).join('');
         return `<div class="bar${c.covered && n ? '' : ' off'}"><span class="lb">${esc(c.label)}</span><span class="seg">${cells}</span><span class="ct">${n ? `<b>${c.null}</b>/${n} null` : '—'}</span></div>`;
       }).join('')}</div>
@@ -926,7 +926,7 @@ census  births  check  host  launch  void  man null  whoami  clear`); return;
   const VX = { cv: $('#vortex'), on: false, ps: [], coins: [] };
   (() => {
     const cv = VX.cv, x = cv.getContext('2d'); let w = 0, h = 0, R0 = 0;
-    const size = () => { const r = cv.getBoundingClientRect(); w = r.width; h = r.height; cv.width = Math.round(w * DPR); cv.height = Math.round(h * DPR); R0 = Math.min(w, h) * (w < 700 ? 0.27 : 0.17); x.setTransform(DPR, 0, 0, DPR, 0, 0); x.fillStyle = '#050505'; x.fillRect(0, 0, w, h); };
+    const size = () => { const r = cv.getBoundingClientRect(); w = r.width; h = r.height; cv.width = Math.round(w * DPR); cv.height = Math.round(h * DPR); R0 = Math.min(w, h) * (w < 700 ? 0.27 : 0.23); x.setTransform(DPR, 0, 0, DPR, 0, 0); x.fillStyle = '#050505'; x.fillRect(0, 0, w, h); };
     const N = innerWidth < 700 ? 320 : 760;
     const spawn = (p, fresh) => { p.a = Math.random() * Math.PI * 2; p.r = (fresh ? Math.random() : .85 + Math.random() * .15) * Math.hypot(w, h) * .55 + R0; p.s = .4 + Math.random() * 1.2; p.b = .25 + Math.random() * .75; return p; };
     size(); for (let i = 0; i < N; i++) VX.ps.push(spawn({}, true));
@@ -945,7 +945,7 @@ census  births  check  host  launch  void  man null  whoami  clear`); return;
         if (p.r < R0) { spawn(p); continue; }
         const px = cx + Math.cos(p.a) * p.r, py = cy + Math.sin(p.a) * p.r * .62;
         const near = Math.max(0, 1 - (p.r - R0) / (Math.min(w, h) * .5));
-        x.fillStyle = `rgba(232,230,225,${(.15 + near * .75) * p.b})`;
+        x.fillStyle = `rgba(232,230,225,${(.28 + near * .72) * p.b})`;
         x.fillRect(px, py, near > .7 ? 1.6 : 1, near > .7 ? 1.6 : 1);
       }
       // coins born on null: alive ones orbit, null ones fall in
