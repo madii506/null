@@ -584,7 +584,7 @@ async function sigsDeep(addr, opt, diag) {
   for (let attempt = 0; attempt < 3; attempt++) {
     let empty = null;
     for (let i = 0; i < conns.length; i++) {
-      try { const r = await conns[i].getSignaturesForAddress(addr, opt, 'confirmed'); if (r.length) return r; empty = r; }
+      try { if (i) await slot('sig' + i, 280); const r = await conns[i].getSignaturesForAddress(addr, opt, 'confirmed'); if (r.length) return r; empty = r; }
       catch (e) { if (diag && diag.length < 8) diag.push(i + ': ' + String(e && e.message || e).replace(/https?:\/\/\S+/g, '').slice(0, 70)); }
     }
     if (empty) return empty;
@@ -594,8 +594,16 @@ async function sigsDeep(addr, opt, diag) {
 }
 
 // A transaction from any RPC that still has it (publicnode forgets after about a day).
+// fallback RPCs (mainnet-beta) allow only a few calls a second per method: space them out
+const gate = {};
+async function slot(key, gap) { const now = Date.now(), next = Math.max(now, gate[key] || 0); gate[key] = next + gap; if (next > now) await new Promise(r => setTimeout(r, next - now)); }
 async function txDeep(sig) {
-  for (const c of conns) { try { const t = await c.getParsedTransaction(sig, { maxSupportedTransactionVersion: 0, commitment: 'confirmed' }); if (t) return t; } catch (e) { } }
+  for (let attempt = 0; attempt < 3; attempt++) {
+    for (let i = 0; i < conns.length; i++) {
+      try { if (i) await slot('tx' + i, 280); const t = await conns[i].getParsedTransaction(sig, { maxSupportedTransactionVersion: 0, commitment: 'confirmed' }); if (t) return t; } catch (e) { }
+    }
+    await new Promise(r => setTimeout(r, 900 * (attempt + 1)));
+  }
   throw new Error('transaction unavailable');
 }
 // The coin a migration transaction graduated (account 2 of pump's migrate instruction). false = not a migration.
@@ -635,10 +643,10 @@ function metaOf(meta, mint, poolKey) {
 }
 
 /* ---------------- the census: a measured sample of every graduation in the last 7 days ---------------- */
-const COHORTS = [[0, 6, '0–6h', 12], [6, 24, '6–24h', 12], [24, 48, '1–2d', 12], [48, 72, '2–3d', 12], [72, 120, '3–5d', 30]];
+const COHORTS = [[0, 6, '0–6h', 12], [6, 24, '6–24h', 12], [24, 48, '1–2d', 10], [48, 72, '2–3d', 10], [72, 120, '3–5d', 28]];
 async function census() {
   return cached('census', 15 * 60e3, async () => {
-    const t0 = Date.now(), now = nowS(), HORIZON = 5 * 86400, deadline = t0 + 47000;
+    const t0 = Date.now(), now = nowS(), HORIZON = 5 * 86400, deadline = t0 + 52000;
     // 1) every migration signature back to 7 days (signatures only: cheap)
     let before, all = [], reached = now, pages = 0; const diag = [];
     while (pages < 20 && Date.now() - t0 < 17000) {
@@ -660,7 +668,7 @@ async function census() {
       const step = Math.max(1, Math.floor(band.length / PER));
       for (let i = 0; i < band.length && picks.filter(p => p.ci === ci).length < PER; i += step) picks.push({ ci, sig: band[i].signature, at: band[i].blockTime });
     });
-    const parsed = await mapLimit(picks, 6, p => migratedMint(p.sig), deadline - 18000);
+    const parsed = await mapLimit(picks, 6, p => migratedMint(p.sig), deadline - 17000);
     const seen = new Set(), coins = [];
     let parsedOk = 0;
     parsed.forEach((r, i) => { if (r === undefined || r === null) return; parsedOk++; if (!r || seen.has(r.mint)) return; seen.add(r.mint); coins.push({ mint: r.mint, bornAt: r.at || picks[i].at, ci: picks[i].ci }); });
