@@ -610,7 +610,9 @@ async function txDeep(sig, diag) {
       for (const v of [0, 1]) {
         try {
           if (i) await slot('tx' + i, 260);
+          const t1 = Date.now();
           const t = await rpcRaw(i, 'getTransaction', [sig, { encoding: 'jsonParsed', maxSupportedTransactionVersion: v, commitment: 'confirmed' }]);
+          if (diag && i && diag.length < 10) diag.push(`tx${i} v${v} ${Date.now() - t1}ms ${t ? 'ok' : 'null'}`);
           if (t) return t;
           break;
         } catch (e) {
