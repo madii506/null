@@ -593,21 +593,27 @@ async function sigsDeep(addr, opt, diag) {
   return null;
 }
 
-// The coin a migration transaction graduated (account 2 of pump's migrate instruction).
+// A transaction from any RPC that still has it (publicnode forgets after about a day).
+async function txDeep(sig) {
+  for (const c of conns) { try { const t = await c.getParsedTransaction(sig, { maxSupportedTransactionVersion: 0, commitment: 'confirmed' }); if (t) return t; } catch (e) { } }
+  throw new Error('transaction unavailable');
+}
+// The coin a migration transaction graduated (account 2 of pump's migrate instruction). false = not a migration.
 async function migratedMint(sig) {
   return cached('mig:' + sig, 864e5, async () => {
-    const t = await rpc(c => c.getParsedTransaction(sig, { maxSupportedTransactionVersion: 0, commitment: 'confirmed' }));
-    if (!t || (t.meta && t.meta.err)) return null;
+    const t = await txDeep(sig);
+    if (t.meta && t.meta.err) return false;
     const logs = (t.meta && t.meta.logMessages) || [];
-    if (!logs.some(l => /Instruction: Migrate/.test(l))) return null;
+    if (!logs.some(l => /Instruction: Migrate/.test(l))) return false;
     const ix = t.transaction.message.instructions.find(i => i.programId && i.programId.equals(PUMP_PROGRAM));
-    if (!ix || !ix.accounts || ix.accounts.length < 3) return null;
+    if (!ix || !ix.accounts || ix.accounts.length < 3) return false;
     return { mint: ix.accounts[2].toBase58(), at: t.blockTime || 0 };
   });
 }
 // The last moment anything touched a pool: its heartbeat.
 async function lastBeat(poolKey) {
-  const s = await sigs(poolKey, { limit: 8 });
+  const s = await sigsDeep(poolKey, { limit: 8 });
+  if (!s) throw new Error('rpc busy');
   const ok = s.find(x => !x.err && x.blockTime) || s.find(x => x.blockTime);
   return ok ? ok.blockTime : null;
 }
@@ -629,13 +635,13 @@ function metaOf(meta, mint, poolKey) {
 }
 
 /* ---------------- the census: a measured sample of every graduation in the last 7 days ---------------- */
-const COHORTS = [[0, 6, '0–6h'], [6, 24, '6–24h'], [24, 48, '1–2d'], [48, 72, '2–3d'], [72, 120, '3–5d'], [120, 168, '5–7d']];
+const COHORTS = [[0, 6, '0–6h', 12], [6, 24, '6–24h', 12], [24, 48, '1–2d', 12], [48, 72, '2–3d', 12], [72, 120, '3–5d', 30]];
 async function census() {
   return cached('census', 15 * 60e3, async () => {
-    const t0 = Date.now(), now = nowS(), HORIZON = 7 * 86400, deadline = t0 + 46000;
+    const t0 = Date.now(), now = nowS(), HORIZON = 5 * 86400, deadline = t0 + 47000;
     // 1) every migration signature back to 7 days (signatures only: cheap)
     let before, all = [], reached = now, pages = 0; const diag = [];
-    while (pages < 26 && Date.now() - t0 < 16000) {
+    while (pages < 20 && Date.now() - t0 < 17000) {
       const page = await sigsDeep(MIGRATOR, { limit: 1000, before }, diag);
       pages++;
       if (!page) { if (!all.length) throw http(502, 'Solana RPC is busy: ' + diag.join(' | ')); break; }
@@ -647,8 +653,8 @@ async function census() {
     all = all.filter(s => s.blockTime >= now - HORIZON);
     const coveredH = (now - Math.max(reached, now - HORIZON)) / 3600;
     // 2) an even sample from each age band
-    const PER = 16, picks = [];
-    COHORTS.forEach(([a, b], ci) => {
+    const picks = [];
+    COHORTS.forEach(([a, b, , PER], ci) => {
       if (a >= coveredH) return;
       const band = all.filter(s => now - s.blockTime >= a * 3600 && now - s.blockTime < b * 3600);
       const step = Math.max(1, Math.floor(band.length / PER));
@@ -657,7 +663,7 @@ async function census() {
     const parsed = await mapLimit(picks, 6, p => migratedMint(p.sig), deadline - 18000);
     const seen = new Set(), coins = [];
     let parsedOk = 0;
-    parsed.forEach((r, i) => { if (r === undefined) return; parsedOk++; if (!r || seen.has(r.mint)) return; seen.add(r.mint); coins.push({ mint: r.mint, bornAt: r.at || picks[i].at, ci: picks[i].ci }); });
+    parsed.forEach((r, i) => { if (r === undefined || r === null) return; parsedOk++; if (!r || seen.has(r.mint)) return; seen.add(r.mint); coins.push({ mint: r.mint, bornAt: r.at || picks[i].at, ci: picks[i].ci }); });
     // 3) heartbeat of each pool
     const beats = await mapLimit(coins, 6, c => lastBeat(canonicalPumpPoolPda(new PublicKey(c.mint))), deadline - 4000);
     const meta = await dexMeta(coins.map(c => c.mint));
