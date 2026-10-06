@@ -597,19 +597,20 @@ async function sigsDeep(addr, opt, diag) {
 // fallback RPCs (mainnet-beta) allow only a few calls a second per method: space them out
 const gate = {};
 async function slot(key, gap) { const now = Date.now(), next = Math.max(now, gate[key] || 0); gate[key] = next + gap; if (next > now) await new Promise(r => setTimeout(r, next - now)); }
-async function txDeep(sig) {
-  for (let attempt = 0; attempt < 3; attempt++) {
+async function txDeep(sig, diag) {
+  for (let attempt = 0; attempt < 4; attempt++) {
     for (let i = 0; i < conns.length; i++) {
-      try { if (i) await slot('tx' + i, 280); const t = await conns[i].getParsedTransaction(sig, { maxSupportedTransactionVersion: 0, commitment: 'confirmed' }); if (t) return t; } catch (e) { }
+      try { if (i) await slot('tx' + i, 260); const t = await conns[i].getParsedTransaction(sig, { maxSupportedTransactionVersion: 0, commitment: 'confirmed' }); if (t) return t; }
+      catch (e) { if (diag && i && diag.length < 6) diag.push('tx' + i + ': ' + String(e && e.message || e).replace(/https?:\/\/\S+/g, '').slice(0, 90)); }
     }
-    await new Promise(r => setTimeout(r, 900 * (attempt + 1)));
+    await new Promise(r => setTimeout(r, 1200 * (attempt + 1)));
   }
   throw new Error('transaction unavailable');
 }
 // The coin a migration transaction graduated (account 2 of pump's migrate instruction). false = not a migration.
-async function migratedMint(sig) {
+async function migratedMint(sig, diag) {
   return cached('mig:' + sig, 864e5, async () => {
-    const t = await txDeep(sig);
+    const t = await txDeep(sig, diag);
     if (t.meta && t.meta.err) return false;
     const logs = (t.meta && t.meta.logMessages) || [];
     if (!logs.some(l => /Instruction: Migrate/.test(l))) return false;
@@ -643,13 +644,13 @@ function metaOf(meta, mint, poolKey) {
 }
 
 /* ---------------- the census: a measured sample of every graduation in the last 7 days ---------------- */
-const COHORTS = [[0, 6, '0–6h', 12], [6, 24, '6–24h', 12], [24, 48, '1–2d', 10], [48, 72, '2–3d', 10], [72, 120, '3–5d', 28]];
+const COHORTS = [[0, 6, '0–6h', 12], [6, 24, '6–24h', 12], [24, 48, '1–2d', 8], [48, 72, '2–3d', 8], [72, 120, '3–5d', 24]];
 async function census() {
   return cached('census', 15 * 60e3, async () => {
-    const t0 = Date.now(), now = nowS(), HORIZON = 5 * 86400, deadline = t0 + 52000;
+    const t0 = Date.now(), now = nowS(), HORIZON = 5 * 86400, deadline = t0 + 56000;
     // 1) every migration signature back to 7 days (signatures only: cheap)
     let before, all = [], reached = now, pages = 0; const diag = [];
-    while (pages < 20 && Date.now() - t0 < 17000) {
+    while (pages < 20 && Date.now() - t0 < 15000) {
       const page = await sigsDeep(MIGRATOR, { limit: 1000, before }, diag);
       pages++;
       if (!page) { if (!all.length) throw http(502, 'Solana RPC is busy: ' + diag.join(' | ')); break; }
@@ -668,12 +669,14 @@ async function census() {
       const step = Math.max(1, Math.floor(band.length / PER));
       for (let i = 0; i < band.length && picks.filter(p => p.ci === ci).length < PER; i += step) picks.push({ ci, sig: band[i].signature, at: band[i].blockTime });
     });
-    const parsed = await mapLimit(picks, 6, p => migratedMint(p.sig), deadline - 17000);
+    // oldest first: they come from the slow archive, the fresh ones are quick
+    picks.sort((x, y) => y.ci - x.ci);
+    const parsed = await mapLimit(picks, 5, p => migratedMint(p.sig, diag), t0 + 41000);
     const seen = new Set(), coins = [];
     let parsedOk = 0;
     parsed.forEach((r, i) => { if (r === undefined || r === null) return; parsedOk++; if (!r || seen.has(r.mint)) return; seen.add(r.mint); coins.push({ mint: r.mint, bornAt: r.at || picks[i].at, ci: picks[i].ci }); });
     // 3) heartbeat of each pool
-    const beats = await mapLimit(coins, 6, c => lastBeat(canonicalPumpPoolPda(new PublicKey(c.mint))), deadline - 4000);
+    const beats = await mapLimit(coins, 6, c => lastBeat(canonicalPumpPoolPda(new PublicKey(c.mint))), t0 + 49000);
     const meta = await dexMeta(coins.map(c => c.mint));
     const pts = [];
     coins.forEach((c, i) => {
