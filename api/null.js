@@ -950,7 +950,11 @@ module.exports = async (req, res) => {
     }
     if (path === 'blockhash') { const b = await rpc(c => c.getLatestBlockhash('confirmed')); return send(res, 200, { ok: true, ...b }); }
     if (path === 'dbg') {
-      const sig = String(q.get('sig') || ''); const out = [];
+      let sig = String(q.get('sig') || ''); const out = [];
+      if (q.get('deep')) {
+        let before; const want = nowS() - Number(q.get('deep')) * 3600;
+        for (let k = 0; k < 20; k++) { const pg = await conns[conns.length - 1].getSignaturesForAddress(MIGRATOR, { limit: 1000, before }); if (!pg.length) break; before = pg[pg.length - 1].signature; if (pg[pg.length - 1].blockTime < want) { const hit = pg.find(x => x.blockTime < want); sig = hit.signature; out.push(['found', k, (nowS() - hit.blockTime) / 3600]); break; } }
+      }
       for (let i = 0; i < conns.length; i++) {
         for (const enc of ['parsed', 'json']) {
           const t1 = Date.now();
