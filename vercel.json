@@ -1,6 +1,6 @@
 {
   "cleanUrls": true,
-  "functions": { "api/null.js": { "maxDuration": 60 } },
+  "functions": { "api/null.js": { "maxDuration": 300 } },
   "rewrites": [
     { "source": "/m/:mint", "destination": "/api/null?__p=meta&mint=:mint" },
     { "source": "/i/:file", "destination": "/api/null?__p=img&mint=:file" },
