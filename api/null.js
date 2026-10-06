@@ -585,7 +585,7 @@ async function sigsDeep(addr, opt, diag, skipPublic) {
     let empty = null;
     for (let i = 0; i < conns.length; i++) {
       if (skipPublic && i === PUBLICNODE && conns.length > 1) continue;
-      try { if (i) await slot('sig' + i, 280); const r = await conns[i].getSignaturesForAddress(addr, opt, 'confirmed'); if (r.length) return r; empty = r; }
+      try { if (i) await slot('sig' + i, 450); const r = await conns[i].getSignaturesForAddress(addr, opt, 'confirmed'); if (r.length) return r; empty = r; }
       catch (e) { if (diag && i !== PUBLICNODE && diag.length < 8) diag.push(i + ': ' + String(e && e.message || e).replace(/https?:\/\/\S+/g, '').slice(0, 70)); }
     }
     if (empty) return empty;
@@ -611,16 +611,16 @@ async function txDeep(sig, diag, archiveOnly) {
   const order = RPCS.map((_, i) => i).filter(i => !(archiveOnly && i === PUBLICNODE));
   for (let attempt = 0; attempt < 3; attempt++) {
     for (const i of order) {
-      for (const v of [0, 1]) {
+      for (const v of (archiveOnly ? [1, 0] : [0, 1])) {
         try {
-          if (i) await slot('tx' + i, 260);
+          if (i) await slot('tx' + i, archiveOnly ? 1100 : 300);
           const t1 = Date.now();
           const t = await rpcRaw(i, 'getTransaction', [sig, { encoding: 'jsonParsed', maxSupportedTransactionVersion: v, commitment: 'confirmed' }]);
           if (t) return t;
           break;
         } catch (e) {
           const m = String(e && e.message || e);
-          if (v === 0 && /version/i.test(m)) continue;
+          if ((v === 0 && /version/i.test(m)) || (v === 1 && /param|support/i.test(m) && !/many/i.test(m))) continue;
           if (diag && i && diag.length < 6) diag.push('tx' + i + ': ' + m.replace(/https?:\/\/\S+/g, '').slice(0, 90));
           break;
         }
@@ -672,7 +672,7 @@ function metaOf(meta, mint, poolKey) {
 const COHORTS = [[0, 6, '0–6h', 12], [6, 24, '6–24h', 12], [24, 48, '1–2d', 8], [48, 72, '2–3d', 8], [72, 120, '3–5d', 24]];
 async function census() {
   return cached('census', 15 * 60e3, async () => {
-    const t0 = Date.now(), now = nowS(), HORIZON = 5 * 86400, deadline = t0 + 56000;
+    const t0 = Date.now(), now = nowS(), HORIZON = 5 * 86400, deadline = t0 + 170000;
     // 1) every migration signature back to 7 days (signatures only: cheap)
     let before, all = [], reached = now, pages = 0; const diag = [];
     while (pages < 20 && Date.now() - t0 < 15000) {
@@ -697,7 +697,7 @@ async function census() {
     // fresh ones come from the quick RPC, older ones from the slow archive: run both lanes at once
     const tP = Date.now();
     const fresh = picks.filter(p => p.ci <= 1), aged = picks.filter(p => p.ci >= 2);
-    const [pf, pa] = await Promise.all([mapLimit(fresh, 6, p => migratedMint(p.sig, diag), t0 + 36000), mapLimit(aged, 4, p => migratedMint(p.sig, diag, true), t0 + 36000)]);
+    const [pf, pa] = await Promise.all([mapLimit(fresh, 6, p => migratedMint(p.sig, diag), t0 + 60000), mapLimit(aged, 3, p => migratedMint(p.sig, diag, true), t0 + 110000)]);
     picks.length = 0; picks.push(...fresh, ...aged);
     const parsed = [...pf, ...pa];
     const tB = Date.now();
@@ -705,7 +705,7 @@ async function census() {
     let parsedOk = 0;
     parsed.forEach((r, i) => { if (r === undefined || r === null) return; parsedOk++; if (!r || seen.has(r.mint)) return; seen.add(r.mint); coins.push({ mint: r.mint, bornAt: r.at || picks[i].at, ci: picks[i].ci }); });
     // 3) heartbeat of each pool
-    const beats = await mapLimit(coins, 8, c => lastBeat(canonicalPumpPoolPda(new PublicKey(c.mint)), c.ci >= 2), t0 + 49000);
+    const beats = await mapLimit(coins, 6, c => lastBeat(canonicalPumpPoolPda(new PublicKey(c.mint)), c.ci >= 2), t0 + 150000);
     const tE = Date.now();
     const meta = await dexMeta(coins.map(c => c.mint));
     const pts = [];
