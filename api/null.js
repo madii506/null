@@ -705,7 +705,7 @@ async function census() {
     let parsedOk = 0;
     parsed.forEach((r, i) => { if (r === undefined || r === null) return; parsedOk++; if (!r || seen.has(r.mint)) return; seen.add(r.mint); coins.push({ mint: r.mint, bornAt: r.at || picks[i].at, ci: picks[i].ci }); });
     // 3) heartbeat of each pool
-    const beats = await mapLimit(coins, 6, c => lastBeat(canonicalPumpPoolPda(new PublicKey(c.mint)), c.ci >= 2), t0 + 150000);
+    const beats = await mapLimit(coins, 6, c => lastBeat(canonicalPumpPoolPda(new PublicKey(c.mint))), t0 + 150000);
     const tE = Date.now();
     const meta = await dexMeta(coins.map(c => c.mint));
     const pts = [];
@@ -719,7 +719,7 @@ async function census() {
       const s = pts.filter(p => p.ci === ci);
       return { label, fromH: a, toH: b, migrations: band, sampled: s.length, alive: s.filter(p => p.state === 'alive').length, null: s.filter(p => p.state === 'null').length, covered: a < coveredH };
     });
-    const old = pts.filter(p => now - p.bornAt >= TTL);
+    const old = pts.filter(p => now - p.bornAt >= TTL && (p.state === 'alive' || p.state === 'null'));
     const uniqRatio = parsedOk ? coins.length / parsedOk : 1;
     const perDay = all.length && coveredH > 0 ? Math.round(all.length / coveredH * 24 * uniqRatio) : null;
     return {
