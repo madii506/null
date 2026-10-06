@@ -580,11 +580,17 @@ async function mapLimit(items, n, fn, deadline) {
 }
 const sigs = (addr, opt) => rpc(c => c.getSignaturesForAddress(addr, opt, 'confirmed'));
 // deep history: publicnode keeps about a day of signatures, so older pages fall through to the next RPC (mainnet-beta keeps it all)
-async function sigsDeep(addr, opt) {
-  let last = null;
-  for (const c of conns) { try { const r = await c.getSignaturesForAddress(addr, opt, 'confirmed'); if (r.length) return r; last = r; } catch (e) { } }
-  if (last) return last;
-  throw http(502, 'Solana RPC is busy');
+async function sigsDeep(addr, opt, diag) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    let empty = null;
+    for (let i = 0; i < conns.length; i++) {
+      try { const r = await conns[i].getSignaturesForAddress(addr, opt, 'confirmed'); if (r.length) return r; empty = r; }
+      catch (e) { if (diag && diag.length < 8) diag.push(i + ': ' + String(e && e.message || e).replace(/https?:\/\/\S+/g, '').slice(0, 70)); }
+    }
+    if (empty) return empty;
+    await new Promise(r => setTimeout(r, 700 * (attempt + 1)));
+  }
+  return null;
 }
 
 // The coin a migration transaction graduated (account 2 of pump's migrate instruction).
@@ -628,10 +634,11 @@ async function census() {
   return cached('census', 15 * 60e3, async () => {
     const t0 = Date.now(), now = nowS(), HORIZON = 7 * 86400, deadline = t0 + 46000;
     // 1) every migration signature back to 7 days (signatures only: cheap)
-    let before, all = [], reached = now, pages = 0;
+    let before, all = [], reached = now, pages = 0; const diag = [];
     while (pages < 26 && Date.now() - t0 < 16000) {
-      const page = await sigsDeep(MIGRATOR, { limit: 1000, before });
+      const page = await sigsDeep(MIGRATOR, { limit: 1000, before }, diag);
       pages++;
+      if (!page) { if (!all.length) throw http(502, 'Solana RPC is busy: ' + diag.join(' | ')); break; }
       if (!page.length) break;
       for (const s of page) if (!s.err && s.blockTime) all.push(s);
       before = page[page.length - 1].signature; reached = page[page.length - 1].blockTime || reached;
@@ -669,7 +676,7 @@ async function census() {
     const uniqRatio = parsedOk ? coins.length / parsedOk : 1;
     const perDay = all.length && coveredH > 0 ? Math.round(all.length / coveredH * 24 * uniqRatio) : null;
     return {
-      updated: Date.now(), took: Date.now() - t0, coveredHours: Math.round(coveredH), migrationTxs: all.length, perDay,
+      updated: Date.now(), took: Date.now() - t0, pages, notes: diag, coveredHours: Math.round(coveredH), migrationTxs: all.length, perDay,
       sampled: pts.length, oldSampled: old.length, oldNull: old.filter(p => p.state === 'null').length,
       nullRate: old.length ? old.filter(p => p.state === 'null').length / old.length : null,
       cohorts, points: pts,
