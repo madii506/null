@@ -941,6 +941,17 @@ module.exports = async (req, res) => {
       return send(res, 200, { ok: true, status: s ? s.confirmationStatus : null, err: s ? s.err : null });
     }
     if (path === 'blockhash') { const b = await rpc(c => c.getLatestBlockhash('confirmed')); return send(res, 200, { ok: true, ...b }); }
+    if (path === 'dbg') {
+      const sig = String(q.get('sig') || ''); const out = [];
+      for (let i = 0; i < conns.length; i++) {
+        for (const enc of ['parsed', 'json']) {
+          const t1 = Date.now();
+          try { const t = enc === 'parsed' ? await conns[i].getParsedTransaction(sig, { maxSupportedTransactionVersion: 0, commitment: 'confirmed' }) : await conns[i].getTransaction(sig, { maxSupportedTransactionVersion: 0, commitment: 'confirmed' }); out.push([i, enc, Date.now() - t1, t ? 'ok slot ' + t.slot : 'null']); }
+          catch (e) { out.push([i, enc, Date.now() - t1, 'ERR ' + String(e && e.message || e).replace(/https?:\/\/\S+/g, '').slice(0, 160)]); }
+        }
+      }
+      return send(res, 200, { ok: true, out });
+    }
     if (path === 'slot') { const s = await cached('slot', 4000, () => rpc(c => c.getSlot('confirmed'))); return send(res, 200, { ok: true, slot: s }, 'public, s-maxage=4'); }
     if (req.method !== 'POST') throw http(404, 'Not found');
     const b = await readBody(req);
