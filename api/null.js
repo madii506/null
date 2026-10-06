@@ -580,12 +580,13 @@ async function mapLimit(items, n, fn, deadline) {
 }
 const sigs = (addr, opt) => rpc(c => c.getSignaturesForAddress(addr, opt, 'confirmed'));
 // deep history: publicnode keeps about a day of signatures, so older pages fall through to the next RPC (mainnet-beta keeps it all)
-async function sigsDeep(addr, opt, diag) {
+async function sigsDeep(addr, opt, diag, skipPublic) {
   for (let attempt = 0; attempt < 3; attempt++) {
     let empty = null;
     for (let i = 0; i < conns.length; i++) {
+      if (skipPublic && i === PUBLICNODE && conns.length > 1) continue;
       try { if (i) await slot('sig' + i, 280); const r = await conns[i].getSignaturesForAddress(addr, opt, 'confirmed'); if (r.length) return r; empty = r; }
-      catch (e) { if (diag && diag.length < 8) diag.push(i + ': ' + String(e && e.message || e).replace(/https?:\/\/\S+/g, '').slice(0, 70)); }
+      catch (e) { if (diag && i !== PUBLICNODE && diag.length < 8) diag.push(i + ': ' + String(e && e.message || e).replace(/https?:\/\/\S+/g, '').slice(0, 70)); }
     }
     if (empty) return empty;
     await new Promise(r => setTimeout(r, 700 * (attempt + 1)));
@@ -604,15 +605,17 @@ async function rpcRaw(i, method, params) {
   return j.result;
 }
 // raw getTransaction: older pump migrations are version-1 transactions that web3.js refuses to decode
-async function txDeep(sig, diag) {
+const PUBLICNODE = RPCS.indexOf('https://solana-rpc.publicnode.com');
+async function txDeep(sig, diag, archiveOnly) {
+  // publicnode stalls on transactions older than about a day, so old ones skip it
+  const order = RPCS.map((_, i) => i).filter(i => !(archiveOnly && i === PUBLICNODE));
   for (let attempt = 0; attempt < 3; attempt++) {
-    for (let i = 0; i < RPCS.length; i++) {
+    for (const i of order) {
       for (const v of [0, 1]) {
         try {
           if (i) await slot('tx' + i, 260);
           const t1 = Date.now();
           const t = await rpcRaw(i, 'getTransaction', [sig, { encoding: 'jsonParsed', maxSupportedTransactionVersion: v, commitment: 'confirmed' }]);
-          if (diag && i && diag.length < 10) diag.push(`tx${i} v${v} ${Date.now() - t1}ms ${t ? 'ok' : 'null'}`);
           if (t) return t;
           break;
         } catch (e) {
@@ -628,9 +631,9 @@ async function txDeep(sig, diag) {
   throw new Error('transaction unavailable');
 }
 // The coin a migration transaction graduated (account 2 of pump's migrate instruction). false = not a migration.
-async function migratedMint(sig, diag) {
+async function migratedMint(sig, diag, archiveOnly) {
   return cached('mig:' + sig, 864e5, async () => {
-    const t = await txDeep(sig, diag);
+    const t = await txDeep(sig, diag, archiveOnly);
     if (t.meta && t.meta.err) return false;
     const logs = (t.meta && t.meta.logMessages) || [];
     if (!logs.some(l => /Instruction: Migrate/.test(l))) return false;
@@ -642,8 +645,8 @@ async function migratedMint(sig, diag) {
   });
 }
 // The last moment anything touched a pool: its heartbeat.
-async function lastBeat(poolKey) {
-  const s = await sigsDeep(poolKey, { limit: 8 });
+async function lastBeat(poolKey, archive) {
+  const s = await sigsDeep(poolKey, { limit: 8 }, null, archive);
   if (!s) throw new Error('rpc busy');
   const ok = s.find(x => !x.err && x.blockTime) || s.find(x => x.blockTime);
   return ok ? ok.blockTime : null;
@@ -694,7 +697,7 @@ async function census() {
     // fresh ones come from the quick RPC, older ones from the slow archive: run both lanes at once
     const tP = Date.now();
     const fresh = picks.filter(p => p.ci <= 1), aged = picks.filter(p => p.ci >= 2);
-    const [pf, pa] = await Promise.all([mapLimit(fresh, 6, p => migratedMint(p.sig, diag), t0 + 36000), mapLimit(aged, 4, p => migratedMint(p.sig, diag), t0 + 36000)]);
+    const [pf, pa] = await Promise.all([mapLimit(fresh, 6, p => migratedMint(p.sig, diag), t0 + 36000), mapLimit(aged, 4, p => migratedMint(p.sig, diag, true), t0 + 36000)]);
     picks.length = 0; picks.push(...fresh, ...aged);
     const parsed = [...pf, ...pa];
     const tB = Date.now();
@@ -702,7 +705,7 @@ async function census() {
     let parsedOk = 0;
     parsed.forEach((r, i) => { if (r === undefined || r === null) return; parsedOk++; if (!r || seen.has(r.mint)) return; seen.add(r.mint); coins.push({ mint: r.mint, bornAt: r.at || picks[i].at, ci: picks[i].ci }); });
     // 3) heartbeat of each pool
-    const beats = await mapLimit(coins, 8, c => lastBeat(canonicalPumpPoolPda(new PublicKey(c.mint))), t0 + 49000);
+    const beats = await mapLimit(coins, 8, c => lastBeat(canonicalPumpPoolPda(new PublicKey(c.mint)), c.ci >= 2), t0 + 49000);
     const tE = Date.now();
     const meta = await dexMeta(coins.map(c => c.mint));
     const pts = [];
