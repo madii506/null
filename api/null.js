@@ -597,13 +597,31 @@ async function sigsDeep(addr, opt, diag) {
 // fallback RPCs (mainnet-beta) allow only a few calls a second per method: space them out
 const gate = {};
 async function slot(key, gap) { const now = Date.now(), next = Math.max(now, gate[key] || 0); gate[key] = next + gap; if (next > now) await new Promise(r => setTimeout(r, next - now)); }
+async function rpcRaw(i, method, params) {
+  const r = await timedFetch(9000)(RPCS[i], { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) });
+  const j = await r.json().catch(() => null);
+  if (!r.ok || !j || j.error) throw new Error((j && j.error && j.error.message) || ('HTTP ' + r.status));
+  return j.result;
+}
+// raw getTransaction: older pump migrations are version-1 transactions that web3.js refuses to decode
 async function txDeep(sig, diag) {
-  for (let attempt = 0; attempt < 4; attempt++) {
-    for (let i = 0; i < conns.length; i++) {
-      try { if (i) await slot('tx' + i, 260); const t = await conns[i].getParsedTransaction(sig, { maxSupportedTransactionVersion: 0, commitment: 'confirmed' }); if (t) return t; }
-      catch (e) { if (diag && i && diag.length < 6) diag.push('tx' + i + ': ' + String(e && e.message || e).replace(/https?:\/\/\S+/g, '').slice(0, 90)); }
+  for (let attempt = 0; attempt < 3; attempt++) {
+    for (let i = 0; i < RPCS.length; i++) {
+      for (const v of [0, 1]) {
+        try {
+          if (i) await slot('tx' + i, 260);
+          const t = await rpcRaw(i, 'getTransaction', [sig, { encoding: 'jsonParsed', maxSupportedTransactionVersion: v, commitment: 'confirmed' }]);
+          if (t) return t;
+          break;
+        } catch (e) {
+          const m = String(e && e.message || e);
+          if (v === 0 && /version/i.test(m)) continue;
+          if (diag && i && diag.length < 6) diag.push('tx' + i + ': ' + m.replace(/https?:\/\/\S+/g, '').slice(0, 90));
+          break;
+        }
+      }
     }
-    await new Promise(r => setTimeout(r, 1200 * (attempt + 1)));
+    await new Promise(r => setTimeout(r, 900 * (attempt + 1)));
   }
   throw new Error('transaction unavailable');
 }
@@ -614,9 +632,11 @@ async function migratedMint(sig, diag) {
     if (t.meta && t.meta.err) return false;
     const logs = (t.meta && t.meta.logMessages) || [];
     if (!logs.some(l => /Instruction: Migrate/.test(l))) return false;
-    const ix = t.transaction.message.instructions.find(i => i.programId && i.programId.equals(PUMP_PROGRAM));
+    const P = PUMP_PROGRAM.toBase58();
+    const ix = ((t.transaction && t.transaction.message && t.transaction.message.instructions) || []).find(i => String(i.programId) === P);
     if (!ix || !ix.accounts || ix.accounts.length < 3) return false;
-    return { mint: ix.accounts[2].toBase58(), at: t.blockTime || 0 };
+    const m = ix.accounts[2]; const mint = typeof m === 'string' ? m : (m && m.pubkey) || String(m);
+    return B58.test(mint) ? { mint, at: t.blockTime || 0 } : false;
   });
 }
 // The last moment anything touched a pool: its heartbeat.
@@ -949,21 +969,6 @@ module.exports = async (req, res) => {
       return send(res, 200, { ok: true, status: s ? s.confirmationStatus : null, err: s ? s.err : null });
     }
     if (path === 'blockhash') { const b = await rpc(c => c.getLatestBlockhash('confirmed')); return send(res, 200, { ok: true, ...b }); }
-    if (path === 'dbg') {
-      let sig = String(q.get('sig') || ''); const out = [];
-      if (q.get('deep')) {
-        let before; const want = nowS() - Number(q.get('deep')) * 3600;
-        for (let k = 0; k < 20; k++) { const pg = await conns[conns.length - 1].getSignaturesForAddress(MIGRATOR, { limit: 1000, before }); if (!pg.length) break; before = pg[pg.length - 1].signature; if (pg[pg.length - 1].blockTime < want) { const hit = pg.find(x => x.blockTime < want); sig = hit.signature; out.push(['found', k, (nowS() - hit.blockTime) / 3600]); break; } }
-      }
-      for (let i = 0; i < conns.length; i++) {
-        for (const enc of ['parsed', 'json']) {
-          const t1 = Date.now();
-          try { const t = enc === 'parsed' ? await conns[i].getParsedTransaction(sig, { maxSupportedTransactionVersion: 0, commitment: 'confirmed' }) : await conns[i].getTransaction(sig, { maxSupportedTransactionVersion: 0, commitment: 'confirmed' }); out.push([i, enc, Date.now() - t1, t ? 'ok slot ' + t.slot : 'null']); }
-          catch (e) { out.push([i, enc, Date.now() - t1, 'ERR ' + String(e && e.message || e).replace(/https?:\/\/\S+/g, '').slice(0, 160)]); }
-        }
-      }
-      return send(res, 200, { ok: true, out });
-    }
     if (path === 'slot') { const s = await cached('slot', 4000, () => rpc(c => c.getSlot('confirmed'))); return send(res, 200, { ok: true, slot: s }, 'public, s-maxage=4'); }
     if (req.method !== 'POST') throw http(404, 'Not found');
     const b = await readBody(req);
