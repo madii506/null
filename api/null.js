@@ -579,6 +579,13 @@ async function mapLimit(items, n, fn, deadline) {
   return out;
 }
 const sigs = (addr, opt) => rpc(c => c.getSignaturesForAddress(addr, opt, 'confirmed'));
+// deep history: publicnode keeps about a day of signatures, so older pages fall through to the next RPC (mainnet-beta keeps it all)
+async function sigsDeep(addr, opt) {
+  let last = null;
+  for (const c of conns) { try { const r = await c.getSignaturesForAddress(addr, opt, 'confirmed'); if (r.length) return r; last = r; } catch (e) { } }
+  if (last) return last;
+  throw http(502, 'Solana RPC is busy');
+}
 
 // The coin a migration transaction graduated (account 2 of pump's migrate instruction).
 async function migratedMint(sig) {
@@ -623,7 +630,7 @@ async function census() {
     // 1) every migration signature back to 7 days (signatures only: cheap)
     let before, all = [], reached = now, pages = 0;
     while (pages < 26 && Date.now() - t0 < 16000) {
-      const page = await sigs(MIGRATOR, { limit: 1000, before });
+      const page = await sigsDeep(MIGRATOR, { limit: 1000, before });
       pages++;
       if (!page.length) break;
       for (const s of page) if (!s.err && s.blockTime) all.push(s);
