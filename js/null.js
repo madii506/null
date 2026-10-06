@@ -106,7 +106,7 @@
     const w = HZ.w, h = HZ.h, L = Math.max(22, w * 0.06);
     return { L, R: w - L, top: h * 0.665, line: h * 0.86, bot: h * 0.955 };
   }
-  const H168 = 168 * 3600;
+  const H168 = 120 * 3600;
   function hzPos(p, g, t) {
     const age = Math.max(0, t - (p.bornAt || t)), sil = p.lastAt ? Math.max(0, t - p.lastAt) : 0, T = TTL();
     const x = g.L + Math.sqrt(Math.min(1, age / H168)) * (g.R - g.L) + (p.seed - .5) * 8;
@@ -124,7 +124,7 @@
       HZ.pts.set(c.mint, { ...c, seed: hashStr(c.mint), seed2: hashStr(c.mint + 'y'), t0: t + (k++) * 22, src });
     }
   }
-  const TICKS = [[6, '6h'], [24, '1d'], [48, '2d'], [72, '3d'], [120, '5d'], [168, '7d']];
+  const TICKS = [[6, '6h'], [24, '1d'], [48, '2d'], [72, '3d'], [96, '4d'], [120, '5d']];
   function hzDraw(ts) {
     requestAnimationFrame(hzDraw);
     if (!HZ.on || document.hidden) return;
@@ -136,7 +136,7 @@
     // age ticks
     x.font = '10px SM, monospace'; x.textAlign = 'center';
     for (const [hh, lb] of TICKS) {
-      const tx = g.L + Math.sqrt(hh / 168) * (g.R - g.L);
+      const tx = g.L + Math.sqrt(hh / 120) * (g.R - g.L);
       x.fillStyle = 'rgba(232,230,225,.10)'; for (let yy = g.top; yy < g.bot; yy += 4) x.fillRect(Math.round(tx), yy, 1, 1);
       x.fillStyle = '#4c4b4d'; x.fillText(lb, tx, g.bot + 14);
     }
