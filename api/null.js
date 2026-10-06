@@ -669,14 +669,19 @@ async function census() {
       const step = Math.max(1, Math.floor(band.length / PER));
       for (let i = 0; i < band.length && picks.filter(p => p.ci === ci).length < PER; i += step) picks.push({ ci, sig: band[i].signature, at: band[i].blockTime });
     });
-    // oldest first: they come from the slow archive, the fresh ones are quick
-    picks.sort((x, y) => y.ci - x.ci);
-    const parsed = await mapLimit(picks, 5, p => migratedMint(p.sig, diag), t0 + 41000);
+    // fresh ones come from the quick RPC, older ones from the slow archive: run both lanes at once
+    const tP = Date.now();
+    const fresh = picks.filter(p => p.ci <= 1), aged = picks.filter(p => p.ci >= 2);
+    const [pf, pa] = await Promise.all([mapLimit(fresh, 6, p => migratedMint(p.sig, diag), t0 + 36000), mapLimit(aged, 4, p => migratedMint(p.sig, diag), t0 + 36000)]);
+    picks.length = 0; picks.push(...fresh, ...aged);
+    const parsed = [...pf, ...pa];
+    const tB = Date.now();
     const seen = new Set(), coins = [];
     let parsedOk = 0;
     parsed.forEach((r, i) => { if (r === undefined || r === null) return; parsedOk++; if (!r || seen.has(r.mint)) return; seen.add(r.mint); coins.push({ mint: r.mint, bornAt: r.at || picks[i].at, ci: picks[i].ci }); });
     // 3) heartbeat of each pool
-    const beats = await mapLimit(coins, 6, c => lastBeat(canonicalPumpPoolPda(new PublicKey(c.mint))), t0 + 49000);
+    const beats = await mapLimit(coins, 8, c => lastBeat(canonicalPumpPoolPda(new PublicKey(c.mint))), t0 + 49000);
+    const tE = Date.now();
     const meta = await dexMeta(coins.map(c => c.mint));
     const pts = [];
     coins.forEach((c, i) => {
@@ -693,7 +698,7 @@ async function census() {
     const uniqRatio = parsedOk ? coins.length / parsedOk : 1;
     const perDay = all.length && coveredH > 0 ? Math.round(all.length / coveredH * 24 * uniqRatio) : null;
     return {
-      updated: Date.now(), took: Date.now() - t0, pages, notes: diag, coveredHours: Math.round(coveredH), migrationTxs: all.length, perDay,
+      updated: Date.now(), took: Date.now() - t0, phases: [tP - t0, tB - tP, tE - tB], pages, notes: diag, coveredHours: Math.round(coveredH), migrationTxs: all.length, perDay,
       sampled: pts.length, oldSampled: old.length, oldNull: old.filter(p => p.state === 'null').length,
       nullRate: old.length ? old.filter(p => p.state === 'null').length / old.length : null,
       cohorts, points: pts,
