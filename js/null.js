@@ -344,7 +344,7 @@ census  births  check  host  launch  void  man null  whoami  clear`); return;
     el.innerHTML = `
       <div class="big pr-in">
         <div><div class="n"><span id="cPer">${j.perDay ? '≈' + j.perDay.toLocaleString() : '—'}</span></div><div class="l">graduations a day <span class="mute">· est. from ${j.migrationTxs.toLocaleString()} migrations in ${j.coveredHours}h</span></div></div>
-        <div><div class="n"><span id="cRate">${rate == null ? '—' : Math.round(rate * 100) + '%'}</span></div><div class="l">of coins 3+ days old returned null <span class="mute">· sample n=${j.oldSampled}</span></div></div>
+        <div><div class="n"><span id="cRate">${rate == null ? '—' : Math.round(rate * 100) + '%'}</span></div><div class="l">${rate == null ? `of coins 3+ days old returned null <span class="mute">· needs 72h of history, the RPC reached ${j.coveredHours}h</span>` : `of coins 3+ days old returned null <span class="mute">· sample n=${j.oldSampled}</span>`}</div></div>
       </div>
       <div class="bars">${j.cohorts.map(c => {
         const n = c.sampled, a = n ? Math.round(c.alive / n * SEG) : 0, z = n ? SEG - a : 0;
